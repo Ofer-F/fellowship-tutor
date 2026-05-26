@@ -1,0 +1,52 @@
+{
+  "id": "PY101",
+  "title": "Python 101",
+  "description": "A gentle introduction to programming in Python. Five focused lessons that take you from zero to writing useful little scripts.",
+  "lessons": [
+    {
+      "id": "py101-01-variables",
+      "title": "Variables and types",
+      "outcomes": [
+        "Declare variables and explain Python's dynamic typing",
+        "Distinguish between int, float, str, and bool",
+        "Convert between types using int(), float(), str(), and bool()"
+      ]
+    },
+    {
+      "id": "py101-02-control-flow",
+      "title": "Control flow: if, elif, else",
+      "outcomes": [
+        "Write conditional expressions using comparison and logical operators",
+        "Branch program flow with if / elif / else",
+        "Recognise truthiness rules for common Python values"
+      ]
+    },
+    {
+      "id": "py101-03-loops",
+      "title": "Loops: for and while",
+      "outcomes": [
+        "Iterate over sequences with a for loop using range() and enumerate()",
+        "Use a while loop with a correct exit condition",
+        "Apply break and continue to control loop execution"
+      ]
+    },
+    {
+      "id": "py101-04-functions",
+      "title": "Functions and scope",
+      "outcomes": [
+        "Define functions with positional, keyword, and default arguments",
+        "Return values and understand the difference between return and print",
+        "Explain local vs enclosing vs global scope in plain language"
+      ]
+    },
+    {
+      "id": "py101-05-collections",
+      "title": "Lists, dicts, and comprehensions",
+      "outcomes": [
+        "Create and mutate lists and dictionaries",
+        "Access items by index and by key, and iterate over both",
+        "Write a basic list comprehension and explain when to prefer it over a for loop"
+      ]
+    }
+  ]
+}
