@@ -137,10 +137,10 @@ export function LessonChat({
   );
 
   return (
-    <div className="flex h-svh flex-1 flex-col">
+    <div className="flex h-full min-h-0 flex-1 flex-col">
       <LessonHeader course={course} lesson={lesson} />
 
-      <Conversation className="flex-1">
+      <Conversation className="min-h-0 flex-1">
         <ConversationContent className="mx-auto w-full max-w-3xl gap-6 px-6 py-8">
           {messages.length === 0 ? (
             <EmptyState

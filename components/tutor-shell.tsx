@@ -69,14 +69,14 @@ export function TutorShell({ course, initialProgress }: TutorShellProps) {
   }, [initialProgress]);
 
   return (
-    <div className="flex min-h-svh">
+    <div className="flex h-svh overflow-hidden">
       <Sidebar
         course={course}
         progress={progress}
         activeLessonId={activeLesson.id}
         onSelectLesson={goToLesson}
       />
-      <main className="tutor-backdrop relative flex flex-1 flex-col">
+      <main className="tutor-backdrop relative flex min-w-0 flex-1 flex-col">
         <LessonChat
           key={activeLesson.id}
           course={course}
