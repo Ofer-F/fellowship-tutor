@@ -36,6 +36,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { loadChatMessages, saveChatMessages } from "@/lib/chat-storage";
+import { extractLearnerName } from "@/lib/learner-profile";
 import { cn } from "@/lib/utils";
 import type { Course, Lesson } from "@/lib/syllabus";
 
@@ -87,6 +88,7 @@ type LessonChatProps = {
   onLessonCompleted: (lessonId: string) => Promise<string | null>;
   onAdvance: (lessonId: string) => void;
   onSaveNote: (text: string) => void;
+  onLearnerNameDetected?: (name: string) => void;
 };
 
 export function LessonChat({
@@ -96,6 +98,7 @@ export function LessonChat({
   onLessonCompleted,
   onAdvance,
   onSaveNote,
+  onLearnerNameDetected,
 }: LessonChatProps) {
   const [input, setInput] = useState("");
   const [nextLessonId, setNextLessonId] = useState<string | null>(null);
@@ -155,6 +158,13 @@ export function LessonChat({
     if (lastMessage.role !== "assistant") return;
     saveChatMessages(course.id, lesson.id, messages);
   }, [course.id, lesson.id, messages, status]);
+
+  useEffect(() => {
+    if (!onLearnerNameDetected) return;
+    if (messages.length === 0) return;
+    const detected = extractLearnerName(messages);
+    if (detected) onLearnerNameDetected(detected);
+  }, [messages, onLearnerNameDetected]);
 
   const handleSubmit = useCallback(
     (msg: PromptInputMessage) => {

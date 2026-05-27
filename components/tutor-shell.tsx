@@ -3,8 +3,19 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LessonChat } from "@/components/lesson-chat";
+import { MotivationBar } from "@/components/motivation-bar";
 import { NotesPanel } from "@/components/notes-panel";
 import { Sidebar } from "@/components/sidebar";
+import {
+  cycleDailyGoal,
+  type DailyState,
+  loadDailyState,
+  recordLessonCompletionToday,
+} from "@/lib/daily-goal";
+import {
+  loadLearnerName,
+  saveLearnerName,
+} from "@/lib/learner-profile";
 import {
   createNoteId,
   loadNotes,
@@ -12,6 +23,7 @@ import {
   saveNotes,
 } from "@/lib/notes";
 import type { Progress } from "@/lib/progress";
+import { loadStreak, recordVisit, type StreakState } from "@/lib/streak";
 import type { Course, CourseSummary } from "@/lib/syllabus";
 
 type TutorShellProps = {
@@ -54,6 +66,16 @@ function TutorShellInner({
   const [notes, setNotes] = useState<Note[]>([]);
   const [hasLoadedNotes, setHasLoadedNotes] = useState(false);
   const [isNotesOpen, setIsNotesOpen] = useState<boolean>(true);
+  const [streak, setStreak] = useState<StreakState>({
+    lastVisit: "",
+    currentStreak: 0,
+    longestStreak: 0,
+  });
+  const [daily, setDaily] = useState<DailyState>({
+    goal: 1,
+    completionsByDate: {},
+  });
+  const [learnerName, setLearnerName] = useState<string | null>(null);
 
   useEffect(() => {
     setNotes(loadNotes(course.id));
@@ -64,6 +86,30 @@ function TutorShellInner({
     if (!hasLoadedNotes) return;
     saveNotes(course.id, notes);
   }, [course.id, hasLoadedNotes, notes]);
+
+  useEffect(() => {
+    setStreak(recordVisit());
+  }, []);
+
+  useEffect(() => {
+    setDaily(loadDailyState(course.id));
+    setLearnerName(loadLearnerName(course.id));
+  }, [course.id]);
+
+  const handleCycleGoal = useCallback(() => {
+    setDaily((prev) => cycleDailyGoal(course.id, prev));
+  }, [course.id]);
+
+  const handleLearnerNameDetected = useCallback(
+    (name: string) => {
+      setLearnerName((prev) => {
+        if (prev) return prev;
+        saveLearnerName(course.id, name);
+        return name;
+      });
+    },
+    [course.id]
+  );
 
   const handleSaveNote = useCallback(
     (text: string, lessonId: string, lessonTitle: string) => {
@@ -110,6 +156,7 @@ function TutorShellInner({
   const handleLessonCompleted = useCallback(
     async (completedLessonId: string) => {
       const updated = await refreshProgress();
+      setDaily((prev) => recordLessonCompletionToday(course.id, prev));
       const currentIndex = course.lessons.findIndex(
         (l) => l.id === completedLessonId
       );
@@ -123,7 +170,7 @@ function TutorShellInner({
       }
       return null;
     },
-    [activeLessonId, course.lessons, refreshProgress]
+    [activeLessonId, course.id, course.lessons, refreshProgress]
   );
 
   const goToLesson = useCallback((lessonId: string) => {
@@ -155,6 +202,14 @@ function TutorShellInner({
         onSelectLesson={goToLesson}
       />
       <main className="tutor-backdrop relative flex min-w-0 flex-1 flex-col">
+        <MotivationBar
+          course={course}
+          progress={progress}
+          streak={streak}
+          daily={daily}
+          learnerName={learnerName}
+          onCycleGoal={handleCycleGoal}
+        />
         <LessonChat
           key={activeLesson.id}
           course={course}
@@ -167,6 +222,7 @@ function TutorShellInner({
           onSaveNote={(text) =>
             handleSaveNote(text, activeLesson.id, activeLesson.title)
           }
+          onLearnerNameDetected={handleLearnerNameDetected}
         />
       </main>
       <NotesPanel
