@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useMemo, useState } from "react";
 import { LessonChat } from "@/components/lesson-chat";
 import { Sidebar } from "@/components/sidebar";
 import type { Progress } from "@/lib/progress";
-import type { Course } from "@/lib/syllabus";
+import type { Course, CourseSummary } from "@/lib/syllabus";
 
 type TutorShellProps = {
+  availableCourses: CourseSummary[];
   course: Course;
   initialProgress: Progress;
 };
@@ -17,7 +19,27 @@ function firstIncompleteLessonId(course: Course, progress: Progress): string {
   return next?.id ?? course.lessons[course.lessons.length - 1]?.id ?? "";
 }
 
-export function TutorShell({ course, initialProgress }: TutorShellProps) {
+export function TutorShell({
+  availableCourses,
+  course,
+  initialProgress,
+}: TutorShellProps) {
+  return (
+    <TutorShellInner
+      key={course.id}
+      availableCourses={availableCourses}
+      course={course}
+      initialProgress={initialProgress}
+    />
+  );
+}
+
+function TutorShellInner({
+  availableCourses,
+  course,
+  initialProgress,
+}: TutorShellProps) {
+  const router = useRouter();
   const [progress, setProgress] = useState<Progress>(initialProgress);
   const [activeLessonId, setActiveLessonId] = useState<string>(() =>
     firstIncompleteLessonId(course, initialProgress)
@@ -57,23 +79,28 @@ export function TutorShell({ course, initialProgress }: TutorShellProps) {
     setActiveLessonId(lessonId);
   }, []);
 
+  const handleCourseSelect = useCallback(
+    (courseId: string) => {
+      if (courseId === course.id) return;
+      router.push(`/?courseId=${encodeURIComponent(courseId)}`);
+    },
+    [course.id, router]
+  );
+
   const activeLesson = useMemo(
     () =>
       course.lessons.find((l) => l.id === activeLessonId) ?? course.lessons[0],
     [activeLessonId, course.lessons]
   );
 
-  // Keep state in sync if the server-rendered progress changes (e.g. HMR)
-  useEffect(() => {
-    setProgress(initialProgress);
-  }, [initialProgress]);
-
   return (
     <div className="flex h-svh overflow-hidden">
       <Sidebar
+        availableCourses={availableCourses}
         course={course}
         progress={progress}
         activeLessonId={activeLesson.id}
+        onSelectCourse={handleCourseSelect}
         onSelectLesson={goToLesson}
       />
       <main className="tutor-backdrop relative flex min-w-0 flex-1 flex-col">

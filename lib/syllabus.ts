@@ -14,6 +14,8 @@ export type Course = {
   lessons: Lesson[];
 };
 
+export type CourseSummary = Pick<Course, "id" | "title" | "description">;
+
 const SYLLABUS_DIR = path.join(process.cwd(), "data", "syllabus");
 
 export async function loadCourse(courseId: string): Promise<Course> {
@@ -39,4 +41,12 @@ export async function listCourseIds(): Promise<string[]> {
   return entries
     .filter((name) => name.endsWith(".json"))
     .map((name) => name.replace(/\.json$/, ""));
+}
+
+export async function listCourseSummaries(): Promise<CourseSummary[]> {
+  const ids = await listCourseIds();
+  const courses = await Promise.all(ids.map((id) => loadCourse(id)));
+  return courses
+    .map(({ id, title, description }) => ({ id, title, description }))
+    .sort((a, b) => a.title.localeCompare(b.title));
 }

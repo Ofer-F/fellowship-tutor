@@ -1,12 +1,31 @@
 import { TutorShell } from "@/components/tutor-shell";
 import { readProgress } from "@/lib/progress";
-import { loadCourse } from "@/lib/syllabus";
+import { listCourseSummaries, loadCourse } from "@/lib/syllabus";
 
 const DEFAULT_COURSE_ID = "PY101";
 
-export default async function Home() {
-  const course = await loadCourse(DEFAULT_COURSE_ID);
-  const progress = await readProgress(DEFAULT_COURSE_ID);
+type HomeProps = {
+  searchParams?: Promise<{
+    courseId?: string;
+  }>;
+};
 
-  return <TutorShell course={course} initialProgress={progress} />;
+export default async function Home({ searchParams }: HomeProps) {
+  const courses = await listCourseSummaries();
+  const params = await searchParams;
+  const requestedCourseId = params?.courseId;
+  const courseId =
+    requestedCourseId && courses.some((course) => course.id === requestedCourseId)
+      ? requestedCourseId
+      : DEFAULT_COURSE_ID;
+  const course = await loadCourse(courseId);
+  const progress = await readProgress(course.id);
+
+  return (
+    <TutorShell
+      availableCourses={courses}
+      course={course}
+      initialProgress={progress}
+    />
+  );
 }

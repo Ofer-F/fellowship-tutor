@@ -8,9 +8,16 @@ import {
 } from "lucide-react";
 import { Progress as ProgressBar } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { Progress } from "@/lib/progress";
-import type { Course, Lesson } from "@/lib/syllabus";
+import type { Course, CourseSummary, Lesson } from "@/lib/syllabus";
 
 type LessonStatus = "completed" | "current" | "locked" | "available";
 
@@ -29,16 +36,20 @@ function lessonStatus(
 }
 
 type SidebarProps = {
+  availableCourses: CourseSummary[];
   course: Course;
   progress: Progress;
   activeLessonId: string;
+  onSelectCourse: (courseId: string) => void;
   onSelectLesson: (lessonId: string) => void;
 };
 
 export function Sidebar({
+  availableCourses,
   course,
   progress,
   activeLessonId,
+  onSelectCourse,
   onSelectLesson,
 }: SidebarProps) {
   const total = course.lessons.length;
@@ -51,6 +62,36 @@ export function Sidebar({
         <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
           <GraduationCap className="size-4" />
           Fellowship Tutor
+        </div>
+        <div className="space-y-1.5">
+          <label
+            htmlFor="course-picker"
+            className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+          >
+            Syllabus
+          </label>
+          <Select
+            value={course.id}
+            onValueChange={(value) => {
+              if (typeof value === "string") {
+                onSelectCourse(value);
+              }
+            }}
+          >
+            <SelectTrigger
+              id="course-picker"
+              className="h-9 w-full rounded-xl bg-background/70 text-sm"
+            >
+              <SelectValue>{course.title}</SelectValue>
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger>
+              {availableCourses.map((availableCourse) => (
+                <SelectItem key={availableCourse.id} value={availableCourse.id}>
+                  {availableCourse.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <h1 className="text-lg font-semibold leading-tight tracking-tight">

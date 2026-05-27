@@ -132,8 +132,8 @@ export function LessonChat({
   );
 
   const emptyStateSuggestions = useMemo(
-    () => buildSuggestions(lesson),
-    [lesson]
+    () => buildSuggestions(),
+    []
   );
 
   return (
@@ -306,7 +306,7 @@ function EmptyState({
           Ready when you are
         </h3>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Say hi, ask a question, or jump straight in. We'll work through{" "}
+          Say hi, ask a question, or jump straight in. We&apos;ll work through{" "}
           <span className="font-medium text-foreground">{lesson.title}</span>{" "}
           together at your pace.
         </p>
@@ -404,7 +404,7 @@ function LockedInputNotice({
   );
 }
 
-function buildSuggestions(lesson: Lesson): string[] {
+function buildSuggestions(): string[] {
   const seeds = [
     "I'm new to this — where should we start?",
     "Quiz me on what I should know already.",
