@@ -52,15 +52,18 @@ function TutorShellInner({
     firstIncompleteLessonId(course, initialProgress)
   );
   const [notes, setNotes] = useState<Note[]>([]);
+  const [hasLoadedNotes, setHasLoadedNotes] = useState(false);
   const [isNotesOpen, setIsNotesOpen] = useState<boolean>(true);
 
   useEffect(() => {
     setNotes(loadNotes(course.id));
+    setHasLoadedNotes(true);
   }, [course.id]);
 
   useEffect(() => {
+    if (!hasLoadedNotes) return;
     saveNotes(course.id, notes);
-  }, [course.id, notes]);
+  }, [course.id, hasLoadedNotes, notes]);
 
   const handleSaveNote = useCallback(
     (text: string, lessonId: string, lessonTitle: string) => {

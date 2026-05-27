@@ -12,6 +12,7 @@ import {
   BookOpen,
   Check,
   CheckCircle2,
+  Lightbulb,
   Loader2,
   Sparkles,
 } from "lucide-react";
@@ -34,6 +35,7 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { loadChatMessages, saveChatMessages } from "@/lib/chat-storage";
 import { cn } from "@/lib/utils";
 import type { Course, Lesson } from "@/lib/syllabus";
 
@@ -100,6 +102,10 @@ export function LessonChat({
   const handledCompletionRef = useRef<string | null>(null);
   const hasAutoStartedRef = useRef(false);
 
+  const [initialMessages] = useState<UIMessage[]>(() =>
+    loadChatMessages(course.id, lesson.id)
+  );
+
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -111,6 +117,7 @@ export function LessonChat({
 
   const { messages, sendMessage, status, error, stop } = useChat({
     transport,
+    messages: initialMessages,
   });
 
   const completion = findCompletionPart(messages);
@@ -140,6 +147,14 @@ export function LessonChat({
     hasAutoStartedRef.current = true;
     sendMessage({ text: BEGIN_SIGNAL });
   }, [isAlreadyCompleted, isStreaming, messages.length, sendMessage]);
+
+  useEffect(() => {
+    if (status !== "ready") return;
+    if (messages.length === 0) return;
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage.role !== "assistant") return;
+    saveChatMessages(course.id, lesson.id, messages);
+  }, [course.id, lesson.id, messages, status]);
 
   const handleSubmit = useCallback(
     (msg: PromptInputMessage) => {
@@ -318,6 +333,7 @@ function MessageView({
 }
 
 type SaveMode = "idle" | "editing" | "saved";
+type SummarizeMode = "specific" | "general";
 
 function SaveToNotesFlow({
   fullText,
@@ -328,9 +344,12 @@ function SaveToNotesFlow({
 }) {
   const [mode, setMode] = useState<SaveMode>("idle");
   const [draft, setDraft] = useState("");
-  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [summarizingAs, setSummarizingAs] = useState<SummarizeMode | null>(
+    null
+  );
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isSummarizing = summarizingAs !== null;
 
   useEffect(() => {
     if (mode !== "editing") return;
@@ -365,16 +384,16 @@ function SaveToNotesFlow({
     setMode("idle");
   };
 
-  const handleSummarize = async () => {
+  const handleSummarize = async (summarizeMode: SummarizeMode) => {
     const source = draft.trim() || fullText.trim();
     if (!source || isSummarizing) return;
-    setIsSummarizing(true);
+    setSummarizingAs(summarizeMode);
     setSummaryError(null);
     try {
       const res = await fetch("/api/summarize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: source }),
+        body: JSON.stringify({ text: source, mode: summarizeMode }),
       });
       if (!res.ok) {
         const detail = await res.text();
@@ -389,7 +408,7 @@ function SaveToNotesFlow({
         err instanceof Error ? err.message : "Could not summarize"
       );
     } finally {
-      setIsSummarizing(false);
+      setSummarizingAs(null);
     }
   };
 
@@ -426,30 +445,30 @@ function SaveToNotesFlow({
           className="min-h-[60px] w-full resize-none rounded-md bg-transparent px-2 py-1.5 text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-60"
         />
         <div className="flex flex-wrap items-center justify-between gap-2 px-1 pt-1.5">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleSummarize}
+          <div className="flex flex-wrap items-center gap-1">
+            <SummarizeButton
+              mode="specific"
+              label="As a short sentence"
+              icon={<Sparkles className="size-3.5" />}
+              loading={summarizingAs === "specific"}
               disabled={isSummarizing || (!draft.trim() && !fullText.trim())}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
-                "text-brand hover:bg-brand/10",
-                "disabled:opacity-50 disabled:hover:bg-transparent"
-              )}
-              title="Use AI to compress into one short sentence"
-            >
-              {isSummarizing ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="size-3.5" />
-              )}
-              {isSummarizing ? "Summarizing…" : "Summarize as a short sentence"}
-            </button>
+              onClick={() => handleSummarize("specific")}
+              title="Keep the concrete example, compressed into one sentence"
+            />
+            <SummarizeButton
+              mode="general"
+              label="As a general note"
+              icon={<Lightbulb className="size-3.5" />}
+              loading={summarizingAs === "general"}
+              disabled={isSummarizing || (!draft.trim() && !fullText.trim())}
+              onClick={() => handleSummarize("general")}
+              title="Strip the example, keep only the reusable principle"
+            />
             <button
               type="button"
               onClick={() => setDraft(fullText)}
               disabled={isSummarizing}
-              className="text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+              className="ml-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
             >
               Use full message
             </button>
@@ -505,6 +524,40 @@ function SaveToNotesFlow({
     >
       <BookmarkPlus className="size-3.5" />
       Save to notes
+    </button>
+  );
+}
+
+function SummarizeButton({
+  label,
+  icon,
+  loading,
+  disabled,
+  onClick,
+  title,
+}: {
+  mode: SummarizeMode;
+  label: string;
+  icon: React.ReactNode;
+  loading: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  title: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+        "text-brand hover:bg-brand/10",
+        "disabled:opacity-50 disabled:hover:bg-transparent"
+      )}
+    >
+      {loading ? <Loader2 className="size-3.5 animate-spin" /> : icon}
+      {loading ? "Summarizing…" : label}
     </button>
   );
 }
