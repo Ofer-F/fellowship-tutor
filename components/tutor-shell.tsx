@@ -1,9 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { LessonChat } from "@/components/lesson-chat";
+import { NotesPanel } from "@/components/notes-panel";
 import { Sidebar } from "@/components/sidebar";
+import {
+  createNoteId,
+  loadNotes,
+  type Note,
+  saveNotes,
+} from "@/lib/notes";
 import type { Progress } from "@/lib/progress";
 import type { Course, CourseSummary } from "@/lib/syllabus";
 
@@ -44,6 +51,47 @@ function TutorShellInner({
   const [activeLessonId, setActiveLessonId] = useState<string>(() =>
     firstIncompleteLessonId(course, initialProgress)
   );
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [isNotesOpen, setIsNotesOpen] = useState<boolean>(true);
+
+  useEffect(() => {
+    setNotes(loadNotes(course.id));
+  }, [course.id]);
+
+  useEffect(() => {
+    saveNotes(course.id, notes);
+  }, [course.id, notes]);
+
+  const handleSaveNote = useCallback(
+    (text: string, lessonId: string, lessonTitle: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      setNotes((prev) => [
+        {
+          id: createNoteId(),
+          text: trimmed,
+          lessonId,
+          lessonTitle,
+          createdAt: Date.now(),
+        },
+        ...prev,
+      ]);
+      setIsNotesOpen(true);
+    },
+    []
+  );
+
+  const handleRemoveNote = useCallback((id: string) => {
+    setNotes((prev) => prev.filter((n) => n.id !== id));
+  }, []);
+
+  const handleClearNotes = useCallback(() => {
+    setNotes([]);
+  }, []);
+
+  const toggleNotes = useCallback(() => {
+    setIsNotesOpen((prev) => !prev);
+  }, []);
 
   const refreshProgress = useCallback(async (): Promise<Progress> => {
     const res = await fetch(
@@ -113,8 +161,19 @@ function TutorShellInner({
           )}
           onLessonCompleted={handleLessonCompleted}
           onAdvance={goToLesson}
+          onSaveNote={(text) =>
+            handleSaveNote(text, activeLesson.id, activeLesson.title)
+          }
         />
       </main>
+      <NotesPanel
+        notes={notes}
+        isOpen={isNotesOpen}
+        onToggle={toggleNotes}
+        onRemoveNote={handleRemoveNote}
+        onClearAll={handleClearNotes}
+        onJumpToLesson={goToLesson}
+      />
     </div>
   );
 }

@@ -8,8 +8,11 @@ import {
 import { useChat } from "@ai-sdk/react";
 import {
   ArrowRight,
+  BookmarkPlus,
   BookOpen,
+  Check,
   CheckCircle2,
+  Loader2,
   Sparkles,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -29,11 +32,19 @@ import {
   PromptInputSubmit,
   PromptInputTextarea,
 } from "@/components/ai-elements/prompt-input";
-import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Course, Lesson } from "@/lib/syllabus";
+
+const BEGIN_SIGNAL = "__BEGIN__";
+
+function isBeginSignalMessage(message: UIMessage): boolean {
+  if (message.role !== "user") return false;
+  return message.parts.every(
+    (part) => part.type === "text" && part.text === BEGIN_SIGNAL
+  );
+}
 
 type CompleteLessonOutput = {
   ok: boolean;
@@ -73,6 +84,7 @@ type LessonChatProps = {
   isAlreadyCompleted: boolean;
   onLessonCompleted: (lessonId: string) => Promise<string | null>;
   onAdvance: (lessonId: string) => void;
+  onSaveNote: (text: string) => void;
 };
 
 export function LessonChat({
@@ -81,10 +93,12 @@ export function LessonChat({
   isAlreadyCompleted,
   onLessonCompleted,
   onAdvance,
+  onSaveNote,
 }: LessonChatProps) {
   const [input, setInput] = useState("");
   const [nextLessonId, setNextLessonId] = useState<string | null>(null);
   const handledCompletionRef = useRef<string | null>(null);
+  const hasAutoStartedRef = useRef(false);
 
   const transport = useMemo(
     () =>
@@ -103,6 +117,11 @@ export function LessonChat({
   const isComplete = isAlreadyCompleted || completion !== null;
   const isStreaming = status === "submitted" || status === "streaming";
 
+  const visibleMessages = useMemo(
+    () => messages.filter((m) => !isBeginSignalMessage(m)),
+    [messages]
+  );
+
   useEffect(() => {
     if (!completion) return;
     const key = completion.toolCallId;
@@ -112,6 +131,15 @@ export function LessonChat({
       setNextLessonId(next);
     });
   }, [completion, lesson.id, onLessonCompleted]);
+
+  useEffect(() => {
+    if (hasAutoStartedRef.current) return;
+    if (isAlreadyCompleted) return;
+    if (messages.length > 0) return;
+    if (isStreaming) return;
+    hasAutoStartedRef.current = true;
+    sendMessage({ text: BEGIN_SIGNAL });
+  }, [isAlreadyCompleted, isStreaming, messages.length, sendMessage]);
 
   const handleSubmit = useCallback(
     (msg: PromptInputMessage) => {
@@ -123,34 +151,25 @@ export function LessonChat({
     [isComplete, isStreaming, sendMessage]
   );
 
-  const handleSuggestion = useCallback(
-    (suggestion: string) => {
-      if (isStreaming || isComplete) return;
-      sendMessage({ text: suggestion });
-    },
-    [isComplete, isStreaming, sendMessage]
-  );
-
-  const emptyStateSuggestions = useMemo(
-    () => buildSuggestions(),
-    []
-  );
-
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <LessonHeader course={course} lesson={lesson} />
 
       <Conversation className="min-h-0 flex-1">
         <ConversationContent className="mx-auto w-full max-w-3xl gap-6 px-6 py-8">
-          {messages.length === 0 ? (
-            <EmptyState
-              lesson={lesson}
-              suggestions={emptyStateSuggestions}
-              onPick={handleSuggestion}
-            />
+          {visibleMessages.length === 0 ? (
+            isAlreadyCompleted ? (
+              <CompletedEmptyState lesson={lesson} />
+            ) : (
+              <PreparingState lesson={lesson} />
+            )
           ) : (
-            messages.map((message) => (
-              <MessageView key={message.id} message={message} />
+            visibleMessages.map((message) => (
+              <MessageView
+                key={message.id}
+                message={message}
+                onSaveNote={onSaveNote}
+              />
             ))
           )}
 
@@ -245,24 +264,35 @@ function LessonHeader({ course, lesson }: { course: Course; lesson: Lesson }) {
   );
 }
 
-function MessageView({ message }: { message: UIMessage }) {
+function MessageView({
+  message,
+  onSaveNote,
+}: {
+  message: UIMessage;
+  onSaveNote: (text: string) => void;
+}) {
+  const isAssistant = message.role === "assistant";
   return (
     <Message from={message.role}>
       <MessageContent
         className={cn(
-          message.role === "assistant" &&
-            "max-w-none [&_pre]:font-mono [&_code]:font-mono"
+          isAssistant && "max-w-none [&_pre]:font-mono [&_code]:font-mono"
         )}
       >
         {message.parts.map((part, i) => {
           if (part.type === "text") {
             return (
-              <MessageResponse
-                key={i}
-                className="leading-7 [&>p]:my-2 [&_pre]:rounded-lg"
-              >
-                {part.text}
-              </MessageResponse>
+              <div key={i} className="group/note">
+                <MessageResponse className="leading-7 [&>p]:my-2 [&_pre]:rounded-lg">
+                  {part.text}
+                </MessageResponse>
+                {isAssistant && part.text.trim() && (
+                  <SaveToNotesFlow
+                    fullText={part.text}
+                    onSave={onSaveNote}
+                  />
+                )}
+              </div>
             );
           }
           if (part.type === "tool-complete_lesson") {
@@ -287,40 +317,233 @@ function MessageView({ message }: { message: UIMessage }) {
   );
 }
 
-function EmptyState({
-  lesson,
-  suggestions,
-  onPick,
+type SaveMode = "idle" | "editing" | "saved";
+
+function SaveToNotesFlow({
+  fullText,
+  onSave,
 }: {
-  lesson: Lesson;
-  suggestions: string[];
-  onPick: (s: string) => void;
+  fullText: string;
+  onSave: (text: string) => void;
 }) {
+  const [mode, setMode] = useState<SaveMode>("idle");
+  const [draft, setDraft] = useState("");
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (mode !== "editing") return;
+    const el = textareaRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, [mode]);
+
+  const openEditor = () => {
+    const selection =
+      typeof window !== "undefined" ? window.getSelection() : null;
+    const selectedText = selection?.toString().trim() ?? "";
+    setDraft(selectedText);
+    setSummaryError(null);
+    setMode("editing");
+  };
+
+  const handleSave = () => {
+    const text = draft.trim();
+    if (!text) return;
+    onSave(text);
+    setDraft("");
+    setSummaryError(null);
+    setMode("saved");
+    window.setTimeout(() => setMode("idle"), 1500);
+  };
+
+  const handleCancel = () => {
+    setDraft("");
+    setSummaryError(null);
+    setMode("idle");
+  };
+
+  const handleSummarize = async () => {
+    const source = draft.trim() || fullText.trim();
+    if (!source || isSummarizing) return;
+    setIsSummarizing(true);
+    setSummaryError(null);
+    try {
+      const res = await fetch("/api/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: source }),
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(detail || `Request failed (${res.status})`);
+      }
+      const data = (await res.json()) as { summary?: string };
+      const summary = data.summary?.trim();
+      if (!summary) throw new Error("Empty summary returned");
+      setDraft(summary);
+    } catch (err) {
+      setSummaryError(
+        err instanceof Error ? err.message : "Could not summarize"
+      );
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      handleCancel();
+    }
+  };
+
+  if (mode === "saved") {
+    return (
+      <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-success">
+        <Check className="size-3.5" />
+        Saved to notes
+      </div>
+    );
+  }
+
+  if (mode === "editing") {
+    return (
+      <div className="mt-2 rounded-lg border border-border bg-background/80 p-2 shadow-sm">
+        <textarea
+          ref={textareaRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Write a short bullet to save…"
+          rows={3}
+          disabled={isSummarizing}
+          className="min-h-[60px] w-full resize-none rounded-md bg-transparent px-2 py-1.5 text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-60"
+        />
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1 pt-1.5">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSummarize}
+              disabled={isSummarizing || (!draft.trim() && !fullText.trim())}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+                "text-brand hover:bg-brand/10",
+                "disabled:opacity-50 disabled:hover:bg-transparent"
+              )}
+              title="Use AI to compress into one short sentence"
+            >
+              {isSummarizing ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="size-3.5" />
+              )}
+              {isSummarizing ? "Summarizing…" : "Summarize as a short sentence"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setDraft(fullText)}
+              disabled={isSummarizing}
+              className="text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+            >
+              Use full message
+            </button>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleCancel}
+              disabled={isSummarizing}
+              className="h-7 px-2 text-[11px]"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSave}
+              disabled={!draft.trim() || isSummarizing}
+              className="h-7 px-2.5 text-[11px]"
+            >
+              <BookmarkPlus className="size-3.5" />
+              Save
+            </Button>
+          </div>
+        </div>
+        {summaryError && (
+          <p className="px-1 pt-1 text-[10px] text-destructive">
+            Couldn&apos;t summarize: {summaryError}
+          </p>
+        )}
+        <p className="px-1 pt-1 text-[10px] text-muted-foreground">
+          Tip: highlight text in the message first for a quick bullet, or type
+          your own. <kbd className="font-mono">⌘↵</kbd> to save,{" "}
+          <kbd className="font-mono">Esc</kbd> to cancel.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={openEditor}
+      className={cn(
+        "mt-1.5 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+        "text-muted-foreground opacity-0 group-hover/note:opacity-100 focus-visible:opacity-100",
+        "hover:bg-muted hover:text-foreground"
+      )}
+      aria-label="Save to notes"
+      title="Save to notes (highlight text first for a quick bullet)"
+    >
+      <BookmarkPlus className="size-3.5" />
+      Save to notes
+    </button>
+  );
+}
+
+function PreparingState({ lesson }: { lesson: Lesson }) {
   return (
     <div className="flex flex-col items-center gap-5 py-16 text-center">
       <div className="relative inline-flex size-12 items-center justify-center rounded-2xl bg-brand/10">
-        <Sparkles className="size-6 text-brand" />
+        <Loader2 className="size-6 animate-spin text-brand" />
       </div>
       <div className="max-w-md space-y-2">
         <h3 className="text-lg font-semibold tracking-tight">
-          Ready when you are
+          Your tutor is getting ready…
         </h3>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Say hi, ask a question, or jump straight in. We&apos;ll work through{" "}
+          Setting up{" "}
           <span className="font-medium text-foreground">{lesson.title}</span>{" "}
-          together at your pace.
+          and saying hello.
         </p>
       </div>
-      <Suggestions className="max-w-2xl justify-center pt-2">
-        {suggestions.map((s) => (
-          <Suggestion
-            key={s}
-            suggestion={s}
-            onClick={onPick}
-            className="border-border text-xs"
-          />
-        ))}
-      </Suggestions>
+    </div>
+  );
+}
+
+function CompletedEmptyState({ lesson }: { lesson: Lesson }) {
+  return (
+    <div className="flex flex-col items-center gap-5 py-16 text-center">
+      <div className="relative inline-flex size-12 items-center justify-center rounded-2xl bg-success/15">
+        <CheckCircle2 className="size-6 text-success" />
+      </div>
+      <div className="max-w-md space-y-2">
+        <h3 className="text-lg font-semibold tracking-tight">
+          You&apos;ve already mastered this lesson
+        </h3>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          <span className="font-medium text-foreground">{lesson.title}</span>{" "}
+          is complete. Open the next lesson to keep going.
+        </p>
+      </div>
     </div>
   );
 }
@@ -404,11 +627,3 @@ function LockedInputNotice({
   );
 }
 
-function buildSuggestions(): string[] {
-  const seeds = [
-    "I'm new to this — where should we start?",
-    "Quiz me on what I should know already.",
-    "Show me a quick example to anchor the idea.",
-  ];
-  return seeds.slice(0, 3);
-}
